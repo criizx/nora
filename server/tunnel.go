@@ -1,8 +1,8 @@
 package main
 
 import (
-	"io"
 	"net"
+	"nora/internal/transport"
 )
 
 type Tunnel struct {
@@ -41,14 +41,7 @@ func (t *Tunnel) Serve() error {
 	}
 	defer public.Close()
 
-	go func() {
-		io.Copy(agent, public)
-		agent.Close()
-		public.Close()
-	}()
-
-	_, err = io.Copy(public, agent)
-	return err
+	return transport.Relay(agent, public)
 }
 
 func (t *Tunnel) Close() {
