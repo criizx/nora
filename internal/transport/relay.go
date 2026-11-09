@@ -7,8 +7,8 @@ import (
 	"sync"
 )
 
-func copyOneWay(src, dst *net.TCPConn) error {
-	_, err := io.Copy(dst, src)
+func copyOneWay(dst, src *net.TCPConn) error {
+	_, err := io.CopyBuffer(dst, src, make([]byte, 1024))
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func Relay(sender, receiver net.Conn) error {
 	}
 
 	wg.Go(func() {
-		err := copyOneWay(senderTcpConn, receiverTcpConn)
+		err := copyOneWay(receiverTcpConn, senderTcpConn)
 		if err != nil {
 			receiver.Close()
 			sender.Close()
@@ -47,7 +47,7 @@ func Relay(sender, receiver net.Conn) error {
 		}
 	})
 	wg.Go(func() {
-		err := copyOneWay(receiverTcpConn, senderTcpConn)
+		err := copyOneWay(senderTcpConn, receiverTcpConn)
 		if err != nil {
 			receiver.Close()
 			sender.Close()

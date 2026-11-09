@@ -10,8 +10,6 @@ import (
 
 const testTimeout = 3 * time.Second
 
-// tcpPair returns connected endpoints backed by real TCP sockets so FIN and
-// CloseWrite behave as they do in production (net.Pipe has no half-close).
 func tcpPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
 	t.Helper()
 	listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -52,7 +50,6 @@ func awaitRelay(t *testing.T, done <-chan error) error {
 }
 
 func TestRelayHalfClosePreservesReverseTraffic(t *testing.T) {
-	// Exercise both directions: the responder waits for EOF before replying.
 	for _, reverse := range []bool{false, true} {
 		name := "forward"
 		if reverse {
@@ -108,14 +105,12 @@ func TestRelayHalfClosePreservesReverseTraffic(t *testing.T) {
 func TestRelayCopyErrorIsReturnedAndStopsOtherDirection(t *testing.T) {
 	_, left := tcpPair(t)
 	_, right := tcpPair(t)
-	// A closed TCP socket guarantees a copy error without relying on OS reset timing.
 	left.Close()
 	done := make(chan error, 1)
 	go func() { done <- Relay(left, right) }()
 	if err := awaitRelay(t, done); err == nil {
 		t.Fatal("Relay returned nil after copying through a closed socket")
 	}
-	// The other direction must be interrupted, not left waiting for its peer.
 	if _, err := right.Write([]byte("x")); err == nil {
 		t.Fatal("other relay connection is still writable after failure")
 	}
