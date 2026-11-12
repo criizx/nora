@@ -1,59 +1,46 @@
 package transport
 
 import (
-	"errors"
+	"fmt"
 	"io"
 	"net"
-	"sync"
+	"time"
+
+	"github.com/hashicorp/yamux"
 )
 
-func copyOneWay(dst, src *net.TCPConn) error {
-	_, err := io.CopyBuffer(dst, src, make([]byte, 1024))
-	if err != nil {
+func copyOneWay(dst, src net.Conn) error {
+	if _, err := io.Copy(dst, src); err != nil {
 		return err
 	}
-
-	err = dst.CloseWrite()
-	if err != nil {
-		return err
+	switch conn := dst.(type) {
+	case interface{ CloseWrite() error }:
+		return conn.CloseWrite()
+	case *yamux.Stream:
+		// yamux Close sends FIN but still permits reads from the stream.
+		return conn.Close()
+	default:
+		return fmt.Errorf("connection %T does not support half-close", dst)
 	}
-
-	return nil
 }
 
+// Relay waits for both directions. The caller owns final connection cleanup.
+// On failure it interrupts both directions, including reads on yamux streams.
 func Relay(sender, receiver net.Conn) error {
-	wg := sync.WaitGroup{}
-
-	senderTcpConn, ok := sender.(*net.TCPConn)
-	if !ok {
-		sender.Close()
-		receiver.Close()
-		return errors.New("sender is not a TCP connection")
-	}
-	receiverTcpConn, ok := receiver.(*net.TCPConn)
-
-	if !ok {
-		sender.Close()
-		receiver.Close()
-		return errors.New("receiver is not a TCP connection")
-	}
-
-	wg.Go(func() {
-		err := copyOneWay(receiverTcpConn, senderTcpConn)
-		if err != nil {
-			receiver.Close()
-			sender.Close()
-			return
+	results := make(chan error, 2)
+	go func() { results <- copyOneWay(receiver, sender) }()
+	go func() { results <- copyOneWay(sender, receiver) }()
+	first := <-results
+	if first != nil {
+		for _, conn := range []net.Conn{sender, receiver} {
+			// yamux Close alone allows reads to continue, so expire pending I/O too.
+			conn.SetDeadline(time.Now())
+			conn.Close()
 		}
-	})
-	wg.Go(func() {
-		err := copyOneWay(senderTcpConn, receiverTcpConn)
-		if err != nil {
-			receiver.Close()
-			sender.Close()
-			return
-		}
-	})
-	wg.Wait()
-	return nil
+	}
+	second := <-results
+	if first != nil {
+		return first
+	}
+	return second
 }

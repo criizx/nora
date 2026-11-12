@@ -5,12 +5,22 @@ import (
 )
 
 func main() {
-	firstTunnel, err := NewTunnel("9000", "8080")
+	cfg, err := LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer firstTunnel.Close()
-	if err := firstTunnel.Serve(); err != nil {
-		log.Println(err)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	server, err := NewServer(ctx, cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	defer server.Close()
+	
+	if err := server.Run(); err != nil {
+		log.Println("Server stopped" + err)
 	}
 }

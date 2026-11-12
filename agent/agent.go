@@ -3,44 +3,44 @@ package main
 import (
 	"net"
 	"nora/internal/transport"
-	"os"
-
-	"github.com/joho/godotenv"
+	"context"
 )
 
 type Agent struct {
-	sender   net.Conn
-	receiver net.Conn
+	id        string
+	connType  string
+	localAddr string
+	status    string
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
-func NewAgent(serverPort, receiverPort string) (*Agent, error) {
-	err := godotenv.Load()
-	if err != nil {
-		return nil, err
-	}
-	serverAddress := os.Getenv("SERVER_ADDRESS")
-	sender, err := net.Dial("tcp", serverAddress+":"+serverPort)
-	if err != nil {
-		return nil, err
-	}
-
-	receiver, err := net.Dial("tcp", "127.0.0.1"+":"+receiverPort)
-	if err != nil {
-		sender.Close()
-		return nil, err
-	}
-
+func NewAgent(parentCtx context.Context, id, connType, localAddr string) *Agent {
+	ctx, cancel := context.WithCancel(parentCtx)
 	return &Agent{
-		sender:   sender,
-		receiver: receiver,
-	}, nil
+		id:        id,
+		connType:  connType,
+		localAddr: localAddr,
+		status:    "active",
+		ctx:       ctx,
+		cancel:    cancel,
+	}
 }
 
-func (a *Agent) Serve() error {
-	return transport.Relay(a.sender, a.receiver)
+func (a *Agent) Serve(stream net.Conn) error {
+	defer stream.Close()
+
+	var d net.Dialer
+	receiver, err := d.DialContext(a.ctx, "tcp", a.localAddr)
+	if err != nil {
+		return err
+	}
+	defer receiver.Close()
+
+	return transport.Relay(stream, receiver)
 }
 
-func Close(agent *Agent) {
-	agent.sender.Close()
-	agent.receiver.Close()
+func (a *Agent) Close() {
+	a.status = "closed"
+	a.cancel()
 }

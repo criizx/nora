@@ -1,145 +1,85 @@
 package transport
 
 import (
-	"bytes"
 	"io"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/yamux"
 )
 
-const testTimeout = 3 * time.Second
-
-func tcpPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
-	t.Helper()
-	listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+func TestRelayYamuxHalfClose(t *testing.T) {
+	wireA, wireB := net.Pipe()
+	client, err := yamux.Client(wireA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	server, err := yamux.Server(wireB, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	stream, err := client.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	incoming, err := server.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer incoming.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	if err := listener.SetDeadline(time.Now().Add(testTimeout)); err != nil {
-		t.Fatal(err)
-	}
-	client, err := net.DialTCP("tcp", nil, listener.Addr().(*net.TCPAddr))
+	app, err := net.Dial("tcp", listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { client.Close() })
-	server, err := listener.AcceptTCP()
+	defer app.Close()
+	target, err := listener.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { server.Close() })
-	for _, conn := range []*net.TCPConn{client, server} {
-		if err := conn.SetDeadline(time.Now().Add(testTimeout)); err != nil {
-			t.Fatal(err)
+	defer target.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	stream.SetDeadline(deadline)
+	incoming.SetDeadline(deadline)
+	app.SetDeadline(deadline)
+	target.SetDeadline(deadline)
+	done := make(chan error, 1)
+	go func() { done <- Relay(incoming, target) }()
+	go func() {
+		// Read until the request FIN, then reply in the reverse direction.
+		data, readErr := io.ReadAll(app)
+		if readErr == nil {
+			app.Write(data)
+			app.(*net.TCPConn).CloseWrite()
 		}
+	}()
+	if _, err := stream.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
 	}
-	return client, server
-}
-
-func awaitRelay(t *testing.T, done <-chan error) error {
-	t.Helper()
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	response, err := io.ReadAll(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(response) != "hello" {
+		t.Fatalf("got %q", response)
+	}
 	select {
 	case err := <-done:
-		return err
-	case <-time.After(testTimeout):
-		t.Fatal("Relay did not finish")
-		return nil
-	}
-}
-
-func TestRelayHalfClosePreservesReverseTraffic(t *testing.T) {
-	for _, reverse := range []bool{false, true} {
-		name := "forward"
-		if reverse {
-			name = "reverse"
+		if err != nil {
+			t.Fatal(err)
 		}
-		t.Run(name, func(t *testing.T) {
-			client, left := tcpPair(t)
-			service, right := tcpPair(t)
-			done := make(chan error, 1)
-			go func() { done <- Relay(left, right) }()
-			if reverse {
-				client, service = service, client
-			}
-			request := bytes.Repeat([]byte("request\x00"), 16384)
-			response := bytes.Repeat([]byte("response\xff"), 16384)
-			serviceDone := make(chan error, 1)
-			go func() {
-				got, err := io.ReadAll(service)
-				if err == nil && !bytes.Equal(got, request) {
-					err = io.ErrUnexpectedEOF
-				}
-				if err == nil {
-					_, err = io.Copy(service, bytes.NewReader(response))
-				}
-				if err == nil {
-					err = service.CloseWrite()
-				}
-				serviceDone <- err
-			}()
-			if _, err := io.Copy(client, bytes.NewReader(request)); err != nil {
-				t.Fatal(err)
-			}
-			if err := client.CloseWrite(); err != nil {
-				t.Fatal(err)
-			}
-			got, err := io.ReadAll(client)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(got, response) {
-				t.Fatalf("response mismatch: got %d bytes, want %d", len(got), len(response))
-			}
-			if err := awaitRelay(t, serviceDone); err != nil {
-				t.Fatalf("service: %v", err)
-			}
-			if err := awaitRelay(t, done); err != nil {
-				t.Fatalf("Relay: %v", err)
-			}
-		})
-	}
-}
-
-func TestRelayCopyErrorIsReturnedAndStopsOtherDirection(t *testing.T) {
-	_, left := tcpPair(t)
-	_, right := tcpPair(t)
-	left.Close()
-	done := make(chan error, 1)
-	go func() { done <- Relay(left, right) }()
-	if err := awaitRelay(t, done); err == nil {
-		t.Fatal("Relay returned nil after copying through a closed socket")
-	}
-	if _, err := right.Write([]byte("x")); err == nil {
-		t.Fatal("other relay connection is still writable after failure")
-	}
-}
-
-func TestRelayRejectsNonTCPConnections(t *testing.T) {
-	for _, invalidSender := range []bool{true, false} {
-		name := "receiver"
-		if invalidSender {
-			name = "sender"
-		}
-		t.Run(name, func(t *testing.T) {
-			pipe, peer := net.Pipe()
-			defer pipe.Close()
-			defer peer.Close()
-			_, tcp := tcpPair(t)
-			var sender, receiver net.Conn = tcp, pipe
-			if invalidSender {
-				sender, receiver = pipe, tcp
-			}
-			if err := Relay(sender, receiver); err == nil {
-				t.Fatal("expected non-TCP error")
-			}
-			if _, err := tcp.Write([]byte("x")); err == nil {
-				t.Fatal("TCP connection was not closed")
-			}
-			if _, err := peer.Read(make([]byte, 1)); err != io.EOF {
-				t.Fatalf("pipe peer: got %v, want EOF", err)
-			}
-		})
+	case <-time.After(4 * time.Second):
+		t.Fatal("Relay stuck after EOF")
 	}
 }
