@@ -35,25 +35,25 @@ func (c *Client) handleIncomingStream(stream net.Conn) {
 
 	size := int(nameLen[0])
 	if size == 0 || size > 63 {
-		log.Printf("Invalid agent name length: %d", size)
+		log.Printf("invalid agent name length: %d", size)
 		return
 	}
 
 	nameBuf := make([]byte, size)
 	if _, err := io.ReadFull(stream, nameBuf); err != nil {
-		log.Printf("Failed to read agent name: %v", err)
+		log.Printf("reading agent name: %v", err)
 		return
 	}
 
 	name := string(nameBuf)
 	agent := c.GetAgent(name)
 	if agent == nil {
-		log.Printf("Unknown agent name: %s", name)
+		log.Printf("unknown agent name: %s", name)
 		return
 	}
 
 	if err := agent.Serve(stream); err != nil {
-		log.Printf("Agent [%s] stream error: %v", name, err)
+		log.Printf("agent [%s] stream error: %v", name, err)
 	}
 }
 
@@ -67,7 +67,7 @@ func NewClient(ctx context.Context, acc Account, cfg *Config) (*Client, error) {
 
 	for name, tCfg := range cfg.Tunnels {
 		if len(name) == 0 || len(name) > 63 {
-			return nil, fmt.Errorf("Invalid tunnel name length: %s", name)
+			return nil, fmt.Errorf("invalid tunnel name length: %s", name)
 		}
 		localAddr := fmt.Sprintf("127.0.0.1:%d", tCfg.Port)
 		c.agents[name] = NewAgent(ctx, name, tCfg.Proto, localAddr)
@@ -153,7 +153,7 @@ func (c *Client) Run() error {
 		return err
 	}
 	if !resp.Success {
-		return fmt.Errorf("Server error: %s", resp.Error)
+		return fmt.Errorf("server error: %s", resp.Error)
 	}
 	go func() {
 		<-c.ctx.Done()

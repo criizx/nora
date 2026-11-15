@@ -53,6 +53,6 @@ func main() {
 	}
 	defer client.Close()
 	if err := client.Run(); err != nil {
-		log.Println("Client stopped with error: " + err.Error())
+		log.Println("client stopped with error: " + err.Error())
 	}
 }

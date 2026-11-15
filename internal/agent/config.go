@@ -26,12 +26,12 @@ func DefaultConfigPath() (string, error) {
 	if runtime.GOOS == "windows" {
 		dir = os.Getenv("LOCALAPPDATA")
 		if dir == "" {
-			return "", fmt.Errorf("Cannot determine config path: LOCALAPPDATA is not set")
+			return "", fmt.Errorf("determining config path: LOCALAPPDATA is not set")
 		}
 	} else {
 		dir, err = os.UserConfigDir()
 		if err != nil {
-			return "", fmt.Errorf("Cannot determine config directory: %w", err)
+			return "", fmt.Errorf("determining config directory: %w", err)
 		}
 	}
 	return filepath.Join(dir, "nora", "nora.yml"), nil

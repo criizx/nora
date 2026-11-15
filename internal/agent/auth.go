@@ -33,7 +33,7 @@ func NewAuthClient(baseURL string, httpClient *http.Client) (*AuthClient, error)
 
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid API URL: %w", err)
+		return nil, fmt.Errorf("parsing API URL: %w", err)
 	}
 
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -71,7 +71,7 @@ func checkServerResponse(resp *http.Response) (*Account, error) {
 		return &profile, nil
 
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("unauthorized (401): token is invalid or expired. Please run 'mycli login'")
+		return nil, fmt.Errorf("unauthorized (401): token is invalid or expired")
 
 	case http.StatusForbidden:
 		return nil, fmt.Errorf("forbidden (403): your token lacks permission to access this resource")
@@ -91,7 +91,7 @@ func checkServerResponse(resp *http.Response) (*Account, error) {
 func (a *AuthClient) Authorize(ctx context.Context, token string) (*Account, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return nil, errors.New("No token provided")
+		return nil, errors.New("no token provided")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+"/api/v1/auth", nil)
