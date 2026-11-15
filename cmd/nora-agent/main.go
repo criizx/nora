@@ -47,12 +47,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client, err := agent.NewClient(ctx, *acc, cfg)
+	client, err := agent.NewClient(*acc, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer client.Close()
-	if err := client.Run(); err != nil {
+	if err := client.Run(ctx); err != nil {
 		log.Println("client stopped with error: " + err.Error())
 	}
 }

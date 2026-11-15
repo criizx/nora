@@ -15,6 +15,8 @@ import (
 	"nora/internal/protocol"
 )
 
+const maxResponseBodySize = 1 << 20 // 1 MB
+
 type AuthClient struct {
 	httpClient *http.Client
 	baseURL    string
@@ -57,9 +59,12 @@ type Account struct {
 func checkServerResponse(resp *http.Response) (*Account, error) {
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodySize+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	if len(body) > maxResponseBodySize {
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxResponseBodySize)
 	}
 
 	switch resp.StatusCode {
@@ -78,7 +83,9 @@ func checkServerResponse(resp *http.Response) (*Account, error) {
 
 	default:
 		var apiErr APIError
-		json.Unmarshal(body, &apiErr)
+		if err := json.Unmarshal(body, &apiErr); err != nil {
+			return nil, fmt.Errorf("parsing API error: %w", err)
+		}
 
 		if apiErr.Message != "" {
 			return nil, fmt.Errorf("server error (%d): %s", resp.StatusCode, apiErr.Message)
