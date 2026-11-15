@@ -6,7 +6,7 @@ A self-hosted alternative to ngrok, written in Go. The goal is to expose local s
 
 Work in progress. The original single-connection TCP prototype is being refactored into an agent/server architecture with YAML configuration, authentication messages, and yamux sessions.
 
-The current source does not compile yet: configuration usage and parts of the server implementation are incomplete. The architecture below describes the intended design, not a working feature set.
+Both commands compile. The server implementation is incomplete: `nora-server` exits with an explicit error until authentication and yamux session handling are implemented. The architecture below describes the intended design, not a working feature set.
 
 ## Agent configuration
 
@@ -38,7 +38,7 @@ Use `--config /path/to/config.yml` to select a configuration file. Without the f
 | Linux | `$XDG_CONFIG_HOME/nora/nora.yml`, or `~/.config/nora/nora.yml` if unset |
 | Windows | `%LocalAppData%\nora\nora.yml` |
 
-An explicit path replaces the default. Nora does not search the current directory or create a missing file; errors include the selected path. Full startup instructions will be added once the build is restored.
+An explicit path replaces the default. Nora does not search the current directory or create a missing file; errors include the selected path. Full startup instructions will be added once the server is implemented.
 
 Keep configuration files containing real tokens outside version control, for example in the ignored `.local/` directory.
 
@@ -89,3 +89,13 @@ In the planned design, one agent maintains one outbound TLS connection to the se
 - Custom subdomains for HTTP services
 - Agent authentication and TLS
 - Automatic reconnection
+
+## Project layout
+
+- `cmd/nora-agent` and `cmd/nora-server`: command entry points (`package main`).
+- `internal/agent`: agent configuration, authentication client, sessions and local forwarding.
+- `internal/server`: server implementation and the legacy single-connection tunnel prototype.
+- `internal/protocol`: shared wire messages.
+- `internal/transport`: bidirectional connection relay.
+
+Run `go build ./...`, `go test ./...` and `go vet ./...` from the repository root.

@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func (c *Client) handleIncomingStream(stream net.Conn) {
 
 	var nameLen [1]byte
 	if _, err := io.ReadFull(stream, nameLen[:]); err != nil {
-		log.Printf("Failed to read agent name length: %v", err)
+		log.Printf("reading agent name length: %v", err)
 		return
 	}
 

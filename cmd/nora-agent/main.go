@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"nora/internal/agent"
 )
 
 func main() {
@@ -17,12 +19,12 @@ func main() {
 	path := *configPath
 	if path == "" {
 		var err error
-		path, err = DefaultConfigPath()
+		path, err = agent.DefaultConfigPath()
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
-	cfg, err := LoadConfig(path)
+	cfg, err := agent.LoadConfig(path)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,7 +38,7 @@ func main() {
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	auth, err := NewAuthClient(cfg.ServerAddr, httpClient)
+	auth, err := agent.NewAuthClient(cfg.ServerAddr, httpClient)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,7 +47,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client, err := NewClient(ctx, *acc, cfg)
+	client, err := agent.NewClient(ctx, *acc, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"fmt"
@@ -26,12 +26,12 @@ func DefaultConfigPath() (string, error) {
 	if runtime.GOOS == "windows" {
 		dir = os.Getenv("LOCALAPPDATA")
 		if dir == "" {
-			return "", fmt.Errorf("cannot determine config path: LOCALAPPDATA is not set")
+			return "", fmt.Errorf("Cannot determine config path: LOCALAPPDATA is not set")
 		}
 	} else {
 		dir, err = os.UserConfigDir()
 		if err != nil {
-			return "", fmt.Errorf("cannot determine config directory: %w", err)
+			return "", fmt.Errorf("Cannot determine config directory: %w", err)
 		}
 	}
 	return filepath.Join(dir, "nora", "nora.yml"), nil
@@ -40,12 +40,12 @@ func DefaultConfigPath() (string, error) {
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
+		return nil, fmt.Errorf("reading config file %q: %w", path, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file %q: %w", path, err)
+		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 	}
 
 	return &cfg, nil

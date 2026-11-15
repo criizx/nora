@@ -1,9 +1,9 @@
-package main
+package agent
 
 import (
+	"context"
 	"net"
 	"nora/internal/transport"
-	"context"
 )
 
 type Agent struct {

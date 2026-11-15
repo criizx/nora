@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bytes"
@@ -59,14 +59,14 @@ func checkServerResponse(resp *http.Response) (*Account, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated:
 		var profile Account
 		if err := json.Unmarshal(body, &profile); err != nil {
-			return nil, fmt.Errorf("failed to parse server JSON: %w", err)
+			return nil, fmt.Errorf("parsing server JSON: %w", err)
 		}
 		return &profile, nil
 
@@ -116,11 +116,11 @@ func (a *AuthClient) Authorize(ctx context.Context, token string) (*Account, err
 
 func (a *AuthClient) Register(ctx context.Context, name, email string) (*Account, error) {
 	if name == "" || email == "" {
-		return nil, errors.New("Not enough arguments to register account")
+		return nil, errors.New("name and email are required")
 	}
 
 	if _, err := mail.ParseAddress(email); err != nil {
-		return nil, fmt.Errorf("Invalid email: %w", err)
+		return nil, fmt.Errorf("parsing email address: %w", err)
 	}
 
 	data := protocol.RegisterRequest{
@@ -142,12 +142,12 @@ func (a *AuthClient) Register(ctx context.Context, name, email string) (*Account
 
 	res, err := a.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Registration request failed: %w", err)
+		return nil, fmt.Errorf("sending registration request: %w", err)
 	}
 
 	account, err := checkServerResponse(res)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("processing registration response: %w", err)
 	}
 	fmt.Printf("Successfully registered as %s\n", account.Username)
 	fmt.Printf("Your token is: %s\n", account.Token)
