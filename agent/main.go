@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -25,21 +27,29 @@ func main() {
 		log.Fatal(err)
 	}
 
-	acc, err := Authorize(cfg)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	auth, err := NewAuthClient(cfg.ServerAddr, httpClient)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	acc, err := auth.Authorize(ctx, cfg.Authtoken)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	client, err := NewClient(ctx, *acc, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer client.Close()
-
 	if err := client.Run(); err != nil {
 		log.Println("Client stopped with error: " + err.Error())
 	}

@@ -2,19 +2,48 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"strings"
 
 	"nora/internal/protocol"
 )
 
+type AuthClient struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
 type APIError struct {
 	Message string `json:"message"`
+}
+
+func NewAuthClient(baseURL string, httpClient *http.Client) (*AuthClient, error) {
+	if httpClient == nil {
+		return nil, errors.New("HTTP client cannot be nil")
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("Invalid API URL: %w", err)
+	}
+
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, errors.New("API URL must be an absolute HTTP(S) URL")
+	}
+
+	return &AuthClient{
+		httpClient: httpClient,
+		baseURL:    baseURL,
+	}, nil
 }
 
 type Account struct {
@@ -22,57 +51,7 @@ type Account struct {
 	Username  string `json:"username"`
 	Email     string `json:"email"`
 	Token     string `json:"token"`
-}
-
-func makeAuthentificationRequest(cfg *Config) (*http.Response, error) {
-	if cfg.Authtoken == "" {
-		return nil, errors.New("No token provided")
-	}
-	if cfg.ServerAddr == "" {
-		return nil, errors.New("No server URL provided")
-	}
-
-	token := strings.TrimSpace(cfg.Authtoken)
-
-	req, err := http.NewRequest(http.MethodGet, cfg.ServerAddr+"/api/v1/auth", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{}
-	return client.Do(req)
-}
-
-func makeRegisterRequest(name, email, serverURL string) (*http.Response, error) {
-	if serverURL == "" || name == "" || email == "" {
-		return nil, errors.New("Not  enough arguments to register account")
-	}
-
-	_, err := mail.ParseAddress(email)
-	if err != nil {
-		return nil, errors.New("Invalid email address")
-	}
-
-	data := protocol.RegisterRequest{
-		Username: name,
-		Email:    email,
-	}
-
-	body, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, serverURL+"/api/v1/register", bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	return client.Do(req)
+	ExpiresAt string `json:"expires_at"`
 }
 
 func checkServerResponse(resp *http.Response) (*Account, error) {
@@ -109,31 +88,68 @@ func checkServerResponse(resp *http.Response) (*Account, error) {
 	}
 }
 
-func Authorize(cfg *Config) (*Account, error) {
-	res, err := makeAuthentificationRequest(cfg)
+func (a *AuthClient) Authorize(ctx context.Context, token string) (*Account, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("No token provided")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+"/api/v1/auth", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	profile, err := checkServerResponse(res)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	profile.Token = cfg.Authtoken
-	return profile, nil
+	account, err := checkServerResponse(res)
+	if err != nil {
+		return nil, err
+	}
+
+	account.Token = token
+	return account, nil
 }
 
-func Register(name, email, serverURL string) error {
-	res, err := makeRegisterRequest(name, email, serverURL)
-	if err != nil {
-		return err
+func (a *AuthClient) Register(ctx context.Context, name, email string) (*Account, error) {
+	if name == "" || email == "" {
+		return nil, errors.New("Not enough arguments to register account")
 	}
-	profile, err := checkServerResponse(res)
-	if err != nil {
-		return err
+
+	if _, err := mail.ParseAddress(email); err != nil {
+		return nil, fmt.Errorf("Invalid email: %w", err)
 	}
-	fmt.Printf("Successfully registered as %s\n", profile.Username)
-	fmt.Printf("Your token is: %s\n", profile.Token)
-	return nil
+
+	data := protocol.RegisterRequest{
+		Username: name,
+		Email:    email,
+	}
+
+	body, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/api/v1/register", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Registration request failed: %w", err)
+	}
+
+	account, err := checkServerResponse(res)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Successfully registered as %s\n", account.Username)
+	fmt.Printf("Your token is: %s\n", account.Token)
+	return account, nil
 }
